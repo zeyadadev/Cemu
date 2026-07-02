@@ -28,7 +28,7 @@ InputManager::InputManager()
 #if HAS_KEYBOARD
 	create_provider<KeyboardControllerProvider>();
 #endif
-#if HAS_SDL
+#ifdef HAS_SDL
 	create_provider<SDLControllerProvider>();
 #endif
 #if HAS_XINPUT
@@ -40,7 +40,7 @@ InputManager::InputManager()
 #if HAS_DSU
 	create_provider<DSUControllerProvider>();
 #endif
-#if HAS_GAMECUBE
+#if defined(HAS_GAMECUBE) && HAS_GAMECUBE && defined(HAS_LIBUSB)
 	create_provider<GameCubeControllerProvider>();
 #endif
 #if HAS_WIIMOTE
@@ -57,8 +57,7 @@ InputManager::InputManager()
 
 InputManager::~InputManager()
 {
-	m_update_thread_shutdown.store(true);
-	m_update_thread.join();
+	// destructors will not invoked forever, so we manually release resources in Shutdown().
 }
 
 bool s_input_config_window_has_focus = false;
@@ -713,7 +712,7 @@ std::shared_ptr<VPADController> InputManager::get_vpad_controller(size_t index) 
 		return {};
 
 	std::shared_lock lock(m_mutex);
-	return std::static_pointer_cast<VPADController>(m_vpad[index]);
+	return std::dynamic_pointer_cast<VPADController>(m_vpad[index]);
 }
 
 std::shared_ptr<WPADController> InputManager::get_wpad_controller(size_t index) const
@@ -722,7 +721,7 @@ std::shared_ptr<WPADController> InputManager::get_wpad_controller(size_t index) 
 		return {};
 
 	std::shared_lock lock(m_mutex);
-	return std::static_pointer_cast<WPADController>(m_wpad[index]);
+	return std::dynamic_pointer_cast<WPADController>(m_wpad[index]);
 }
 
 std::pair<size_t, size_t> InputManager::get_controller_count() const
@@ -966,5 +965,23 @@ void InputManager::update_thread()
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		std::this_thread::yield();
+	}
+}
+
+void InputManager::Shutdown()
+{
+    m_update_thread_shutdown = true;
+
+    if (m_update_thread.joinable())
+    {
+        m_update_thread.join();
+    }
+
+    for (auto& pad : m_vpad) pad.reset();
+	for (auto& pad : m_wpad) pad.reset();
+
+	for (auto& providers : m_api_available)
+	{
+		providers.clear();
 	}
 }
